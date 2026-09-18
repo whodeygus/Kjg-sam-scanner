@@ -1,0 +1,29 @@
+name: KJG Daily SAM.gov Scan
+
+on:
+  schedule:
+    # 10:05 UTC = 6:05am ET during EDT (UTC-4). Shifts to 5:05am ET once
+    # clocks fall back to EST (UTC-5) in early November - adjust then if
+    # you want it to stay pinned to 6am local.
+    - cron: "5 10 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: python scan.py
+        env:
+          SAM_API_KEY: ${{ secrets.SAM_API_KEY }}
+          AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
