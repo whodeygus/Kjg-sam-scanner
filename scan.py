@@ -11,10 +11,8 @@ Actions cron) with no human confirmation step of any kind.
 import os
 import sys
 import time
-import smtplib
 import traceback
 from datetime import datetime, timedelta
-from email.mime.text import MIMEText
 from zoneinfo import ZoneInfo
 
 import requests
@@ -35,9 +33,10 @@ AIRTABLE_TABLE_ID = "tblCyhk2xPZUNtrAX"
 
 SAM_API_KEY = os.environ["SAM_API_KEY"]
 AIRTABLE_TOKEN = os.environ["AIRTABLE_TOKEN"]
-GMAIL_ADDRESS = os.environ["GMAIL_ADDRESS"]
-GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
-RECIPIENT_EMAIL = os.environ.get("RECIPIENT_EMAIL", GMAIL_ADDRESS)
+RESEND_API_KEY = os.environ["RESEND_API_KEY"]
+RECIPIENT_EMAIL = os.environ["RECIPIENT_EMAIL"]
+# Resend's shared sending domain - works without verifying your own domain.
+FROM_EMAIL = os.environ.get("FROM_EMAIL", "KJG Scanner <onboarding@resend.dev>")
 
 SAM_PAGE_SIZE = 25  # SAM.gov's public API appears to hard-cap pages at 25
 SAM_MAX_RECORDS_PER_CODE = 500  # safety cap
@@ -185,13 +184,21 @@ def scan_naics_code(ncode, posted_from, posted_to, dedup_set):
 # ---------------------------------------------------------------------------
 
 def send_email(subject, body):
-    msg = MIMEText(body, "plain")
-    msg["Subject"] = subject
-    msg["From"] = GMAIL_ADDRESS
-    msg["To"] = RECIPIENT_EMAIL
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as server:
-        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
-        server.sendmail(GMAIL_ADDRESS, [RECIPIENT_EMAIL], msg.as_string())
+    resp = requests.post(
+        "https://api.resend.com/emails",
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "from": FROM_EMAIL,
+            "to": [RECIPIENT_EMAIL],
+            "subject": subject,
+            "text": body,
+        },
+        timeout=REQUEST_TIMEOUT,
+    )
+    resp.raise_for_status()
 
 
 def format_opportunity(opp):

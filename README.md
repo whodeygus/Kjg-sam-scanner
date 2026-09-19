@@ -14,9 +14,8 @@ New repository secret**.
 |---|---|
 | `SAM_API_KEY` | Your SAM.gov API key (same one the Claude routine used) |
 | `AIRTABLE_TOKEN` | An Airtable Personal Access Token (see below) |
-| `GMAIL_ADDRESS` | The Gmail address to send from |
-| `GMAIL_APP_PASSWORD` | A Gmail App Password (see below) |
-| `RECIPIENT_EMAIL` | Where the summary should be sent (can be the same as `GMAIL_ADDRESS`) |
+| `RESEND_API_KEY` | A Resend API key (see below) |
+| `RECIPIENT_EMAIL` | Where the summary should be sent, e.g. `gustin.puckett@knoxjefferson.com` |
 
 ### Getting an Airtable Personal Access Token
 
@@ -27,12 +26,13 @@ New repository secret**.
    `app1y2Zcd4OkaR1Fh`) - no need to grant access to any other base
 5. Copy the token (starts with `pat...`) into the `AIRTABLE_TOKEN` secret
 
-### Getting a Gmail App Password
+### Getting a Resend API key
 
-1. Go to https://myaccount.google.com/apppasswords (requires 2-Step
-   Verification to be enabled on the account)
-2. Create a new App Password, e.g. named "KJG Scanner"
-3. Copy the 16-character password into the `GMAIL_APP_PASSWORD` secret
+1. Go to https://resend.com and sign up (works fine on a phone, no domain
+   verification needed to send yourself alerts from their shared sending
+   domain)
+2. Go to **API Keys** -> **Create API Key**
+3. Copy the key (starts with `re_`) into the `RESEND_API_KEY` secret
 
 ## Testing it
 
