@@ -125,7 +125,9 @@ def create_airtable_records(records):
         batch = records[i:i + 10]
         body = {"records": batch, "typecast": True}
         resp = requests.post(url, headers=airtable_headers(), json=body, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
+        if not resp.ok:
+            # Surface Airtable's actual per-field error instead of a bare 422.
+            raise RuntimeError(f"Airtable create error {resp.status_code}: {resp.text[:1000]}")
         created += len(resp.json().get("records", []))
     return created
 
@@ -268,7 +270,7 @@ def main():
     if records_to_create:
         try:
             created_count = create_airtable_records(records_to_create)
-        except requests.RequestException as e:
+        except (requests.RequestException, RuntimeError) as e:
             airtable_error = str(e)
 
     lines = []
