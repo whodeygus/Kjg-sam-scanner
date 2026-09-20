@@ -77,7 +77,7 @@ FIELD_DEADLINE = "Response Deadline"
 FIELD_DATE_FOUND = "Date Found"
 FIELD_PLACE = "Place of Performance"
 FIELD_SETASIDE = "Set-Aside"
-FIELD_URL = "Notice URL"
+FIELD_URL = "Link"
 
 
 def now_eastern():
