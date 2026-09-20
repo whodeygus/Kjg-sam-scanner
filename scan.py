@@ -12,8 +12,10 @@ import os
 import re
 import sys
 import time
+import smtplib
 import traceback
 from datetime import datetime, timedelta
+from email.mime.text import MIMEText
 from zoneinfo import ZoneInfo
 
 import requests
@@ -53,12 +55,9 @@ def _env(name):
 
 SAM_API_KEY = _env("SAM_API_KEY")
 AIRTABLE_TOKEN = _env("AIRTABLE_TOKEN")
-RESEND_API_KEY = _env("RESEND_API_KEY")
+GMAIL_ADDRESS = _env("GMAIL_ADDRESS")
+GMAIL_APP_PASSWORD = _env("GMAIL_APP_PASSWORD")  # also strips spaces Google displays it with
 RECIPIENT_EMAIL = _env("RECIPIENT_EMAIL")
-# Resend's shared sending domain - works without verifying your own domain.
-# (Contains spaces/brackets deliberately, so don't run this one through
-# _clean - just strip real leading/trailing whitespace.)
-FROM_EMAIL = os.environ.get("FROM_EMAIL", "KJG Scanner <onboarding@resend.dev>").strip()
 
 SAM_PAGE_SIZE = 25  # SAM.gov's public API appears to hard-cap pages at 25
 SAM_MAX_RECORDS_PER_CODE = 500  # safety cap
@@ -206,23 +205,13 @@ def scan_naics_code(ncode, posted_from, posted_to, dedup_set):
 # ---------------------------------------------------------------------------
 
 def send_email(subject, body):
-    resp = requests.post(
-        "https://api.resend.com/emails",
-        headers={
-            "Authorization": f"Bearer {RESEND_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "from": FROM_EMAIL,
-            "to": [RECIPIENT_EMAIL],
-            "subject": subject,
-            "text": body,
-        },
-        timeout=REQUEST_TIMEOUT,
-    )
-    if not resp.ok:
-        # Surface Resend's actual error message instead of a bare status code.
-        raise RuntimeError(f"Resend API error {resp.status_code}: {resp.text[:500]}")
+    msg = MIMEText(body, "plain")
+    msg["Subject"] = subject
+    msg["From"] = GMAIL_ADDRESS
+    msg["To"] = RECIPIENT_EMAIL
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as server:
+        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+        server.sendmail(GMAIL_ADDRESS, [RECIPIENT_EMAIL], msg.as_string())
 
 
 def format_opportunity(opp):
