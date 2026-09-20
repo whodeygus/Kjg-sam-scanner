@@ -9,6 +9,7 @@ Actions cron) with no human confirmation step of any kind.
 """
 
 import os
+import re
 import sys
 import time
 import traceback
@@ -31,10 +32,23 @@ TIMEZONE = ZoneInfo("America/New_York")
 AIRTABLE_BASE_ID = "app1y2Zcd4OkaR1Fh"
 AIRTABLE_TABLE_ID = "tblCyhk2xPZUNtrAX"
 
+def _clean(value):
+    """Strip whitespace and any non-printable/control/zero-width characters.
+
+    Mobile copy-paste (and pasting into GitHub's secret UI) can smuggle in
+    invisible characters - zero-width spaces, BOM markers, stray CR/LF in
+    the middle of the string, etc. - that plain .strip() won't catch since
+    they aren't at the very start/end or aren't classic whitespace. None of
+    our credentials (API keys, tokens, email addresses) legitimately
+    contain any whitespace or control characters, so it's safe to strip
+    every such character wherever it appears, not just at the edges.
+    """
+    # Keep only printable ASCII, excluding whitespace entirely.
+    return re.sub(r"[^\x21-\x7e]", "", value)
+
+
 def _env(name):
-    # .strip() guards against stray whitespace/newlines from copy-pasting
-    # secret values into GitHub's UI, which otherwise breaks HTTP headers.
-    return os.environ[name].strip()
+    return _clean(os.environ[name])
 
 
 SAM_API_KEY = _env("SAM_API_KEY")
@@ -42,6 +56,8 @@ AIRTABLE_TOKEN = _env("AIRTABLE_TOKEN")
 RESEND_API_KEY = _env("RESEND_API_KEY")
 RECIPIENT_EMAIL = _env("RECIPIENT_EMAIL")
 # Resend's shared sending domain - works without verifying your own domain.
+# (Contains spaces/brackets deliberately, so don't run this one through
+# _clean - just strip real leading/trailing whitespace.)
 FROM_EMAIL = os.environ.get("FROM_EMAIL", "KJG Scanner <onboarding@resend.dev>").strip()
 
 SAM_PAGE_SIZE = 25  # SAM.gov's public API appears to hard-cap pages at 25
