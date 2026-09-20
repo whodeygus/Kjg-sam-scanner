@@ -220,7 +220,9 @@ def send_email(subject, body):
         },
         timeout=REQUEST_TIMEOUT,
     )
-    resp.raise_for_status()
+    if not resp.ok:
+        # Surface Resend's actual error message instead of a bare status code.
+        raise RuntimeError(f"Resend API error {resp.status_code}: {resp.text[:500]}")
 
 
 def format_opportunity(opp):
