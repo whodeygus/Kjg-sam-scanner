@@ -31,12 +31,18 @@ TIMEZONE = ZoneInfo("America/New_York")
 AIRTABLE_BASE_ID = "app1y2Zcd4OkaR1Fh"
 AIRTABLE_TABLE_ID = "tblCyhk2xPZUNtrAX"
 
-SAM_API_KEY = os.environ["SAM_API_KEY"]
-AIRTABLE_TOKEN = os.environ["AIRTABLE_TOKEN"]
-RESEND_API_KEY = os.environ["RESEND_API_KEY"]
-RECIPIENT_EMAIL = os.environ["RECIPIENT_EMAIL"]
+def _env(name):
+    # .strip() guards against stray whitespace/newlines from copy-pasting
+    # secret values into GitHub's UI, which otherwise breaks HTTP headers.
+    return os.environ[name].strip()
+
+
+SAM_API_KEY = _env("SAM_API_KEY")
+AIRTABLE_TOKEN = _env("AIRTABLE_TOKEN")
+RESEND_API_KEY = _env("RESEND_API_KEY")
+RECIPIENT_EMAIL = _env("RECIPIENT_EMAIL")
 # Resend's shared sending domain - works without verifying your own domain.
-FROM_EMAIL = os.environ.get("FROM_EMAIL", "KJG Scanner <onboarding@resend.dev>")
+FROM_EMAIL = os.environ.get("FROM_EMAIL", "KJG Scanner <onboarding@resend.dev>").strip()
 
 SAM_PAGE_SIZE = 25  # SAM.gov's public API appears to hard-cap pages at 25
 SAM_MAX_RECORDS_PER_CODE = 500  # safety cap
