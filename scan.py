@@ -216,13 +216,54 @@ def send_email(subject, body):
         server.sendmail(GMAIL_ADDRESS, [RECIPIENT_EMAIL], msg.as_string())
 
 
+def format_place(place):
+    """SAM.gov's placeOfPerformance is sometimes a nested dict (city/state/
+    zip/country sub-objects), sometimes a plain string, sometimes missing."""
+    if not place:
+        return "not specified"
+    if isinstance(place, str):
+        return place
+
+    parts = []
+    street = place.get("streetAddress")
+    if street:
+        parts.append(street)
+
+    city = place.get("city")
+    city_name = city.get("name") if isinstance(city, dict) else city
+    if city_name:
+        parts.append(city_name)
+
+    state = place.get("state")
+    state_name = state.get("name") if isinstance(state, dict) else state
+    state_code = state.get("code") if isinstance(state, dict) else None
+    if state_code:
+        parts.append(state_code)
+    elif state_name:
+        parts.append(state_name)
+
+    zip_code = place.get("zip")
+    if zip_code:
+        parts.append(zip_code)
+
+    country = place.get("country")
+    country_name = country.get("name") if isinstance(country, dict) else country
+    country_code = country.get("code") if isinstance(country, dict) else None
+    if country_name and country_name.upper() not in ("UNITED STATES", "USA"):
+        parts.append(country_name)
+    elif country_code and country_code.upper() not in ("USA", "US"):
+        parts.append(country_code)
+
+    return ", ".join(parts) if parts else "not specified"
+
+
 def format_opportunity(opp):
     return (
         f"   {opp.get('title', '(no title)')}\n"
         f"   Solicitation: {opp.get('solicitationNumber', 'n/a')}\n"
         f"   Agency: {opp.get('fullParentPathName', 'n/a')}\n"
         f"   Deadline: {opp.get('responseDeadLine') or 'none listed'}\n"
-        f"   Place: {opp.get('placeOfPerformance') or 'not specified'}\n"
+        f"   Place: {format_place(opp.get('placeOfPerformance'))}\n"
         f"   Set-Aside: {opp.get('typeOfSetAsideDescription') or 'none listed'}\n"
         f"   {opp.get('uiLink', '')}\n"
     )
@@ -259,7 +300,7 @@ def main():
                 FIELD_NAICS: ncode,
                 FIELD_DEADLINE: opp.get("responseDeadLine") or None,
                 FIELD_DATE_FOUND: date_found,
-                FIELD_PLACE: opp.get("placeOfPerformance") or "",
+                FIELD_PLACE: format_place(opp.get("placeOfPerformance")),
                 FIELD_SETASIDE: opp.get("typeOfSetAsideDescription") or "",
                 FIELD_URL: opp.get("uiLink") or "",
             }
