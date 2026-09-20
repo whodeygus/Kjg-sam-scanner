@@ -1,0 +1,32 @@
+name: KJG Scan Watchdog
+
+on:
+  schedule:
+    # 11:05 UTC = 7:05am ET during EDT - one hour after the scan's own
+    # 10:05 UTC schedule, well past its normal ~3-4 minute runtime plus
+    # retries. Shifts to 6:05am ET once EST resumes in November.
+    - cron: "5 11 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  actions: read
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: python watchdog.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
