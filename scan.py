@@ -3,11 +3,12 @@
 KJG Daily SAM.gov Scan - plain deterministic script, no AI agent involved.
 
 Pulls new federal contract opportunities from SAM.gov for Knox Jefferson
-Group's registered NAICS codes, dedupes against Airtable, adds new records,
-and emails a summary. Designed to run unattended on a schedule (GitHub
-Actions cron) with no human confirmation step of any kind.
+Group's registered NAICS codes, dedupes against a Google Sheet, adds new
+rows, and emails a summary. Designed to run unattended on a schedule
+(GitHub Actions cron) with no human confirmation step of any kind.
 """
 
+import json
 import os
 import re
 import sys
@@ -18,7 +19,9 @@ from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from zoneinfo import ZoneInfo
 
+import gspread
 import requests
+from google.oauth2.service_account import Credentials
 
 # ---------------------------------------------------------------------------
 # Config
@@ -31,8 +34,21 @@ NAICS_CODES = [
 
 TIMEZONE = ZoneInfo("America/New_York")
 
-AIRTABLE_BASE_ID = "app1y2Zcd4OkaR1Fh"
-AIRTABLE_TABLE_ID = "tblCyhk2xPZUNtrAX"
+SHEET_TAB_NAME = "Opportunities"
+
+# Column order in the Google Sheet. This mirrors the old Airtable schema so
+# nothing is lost - scan.py only ever fills in the first ten columns
+# (everything through Link); the rest stay blank for manual tracking, same
+# as before.
+HEADER = [
+    "Title", "Status", "Solicitation Number", "Agency", "NAICS Code",
+    "Notice Type", "Response Deadline", "Date Found",
+    "Place of Performance", "Set-Aside", "Subcontractor",
+    "Sub Contact Info", "Link", "Notes", "Call Script", "Submission",
+    "Sub Contractor",
+]
+COL_SOLICITATION = "Solicitation Number"
+
 
 def _clean(value):
     """Strip whitespace and any non-printable/control/zero-width characters.
@@ -54,10 +70,14 @@ def _env(name):
 
 
 SAM_API_KEY = _env("SAM_API_KEY")
-AIRTABLE_TOKEN = _env("AIRTABLE_TOKEN")
 GMAIL_ADDRESS = _env("GMAIL_ADDRESS")
 GMAIL_APP_PASSWORD = _env("GMAIL_APP_PASSWORD")  # also strips spaces Google displays it with
 RECIPIENT_EMAIL = _env("RECIPIENT_EMAIL")
+GOOGLE_SHEET_ID = _env("GOOGLE_SHEET_ID")
+# The service account key JSON is a multi-line/whitespace-containing blob,
+# so it can't go through the same character-stripping _clean() as the
+# single-token secrets above - just read it raw.
+GOOGLE_SHEETS_CREDENTIALS_JSON = os.environ["GOOGLE_SHEETS_CREDENTIALS_JSON"]
 
 SAM_PAGE_SIZE = 25  # SAM.gov's public API appears to hard-cap pages at 25
 SAM_MAX_RECORDS_PER_CODE = 500  # safety cap
@@ -66,18 +86,7 @@ RETRY_ATTEMPTS = 3
 RETRY_BACKOFF_SECONDS = 20
 PACE_SECONDS = 3  # delay between SAM.gov calls to avoid rate limiting
 
-AIRTABLE_API = "https://api.airtable.com/v0"
-
-FIELD_TITLE = "Title"
-FIELD_STATUS = "Status"
-FIELD_SOLICITATION = "Solicitation Number"
-FIELD_AGENCY = "Agency"
-FIELD_NAICS = "NAICS Code"
-FIELD_DEADLINE = "Response Deadline"
-FIELD_DATE_FOUND = "Date Found"
-FIELD_PLACE = "Place of Performance"
-FIELD_SETASIDE = "Set-Aside"
-FIELD_URL = "Link"
+SHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 
 def now_eastern():
@@ -85,51 +94,53 @@ def now_eastern():
 
 
 # ---------------------------------------------------------------------------
-# Airtable
+# Google Sheets
 # ---------------------------------------------------------------------------
 
-def airtable_headers():
-    return {
-        "Authorization": f"Bearer {AIRTABLE_TOKEN}",
-        "Content-Type": "application/json",
-    }
+def open_sheet():
+    """Authenticate with the service account and return the worksheet,
+    creating the tab with a header row if this is the very first run."""
+    info = json.loads(GOOGLE_SHEETS_CREDENTIALS_JSON)
+    creds = Credentials.from_service_account_info(info, scopes=SHEETS_SCOPES)
+    client = gspread.authorize(creds)
+    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+
+    try:
+        worksheet = spreadsheet.worksheet(SHEET_TAB_NAME)
+    except gspread.exceptions.WorksheetNotFound:
+        worksheet = spreadsheet.add_worksheet(
+            title=SHEET_TAB_NAME, rows=1000, cols=len(HEADER)
+        )
+        worksheet.append_row(HEADER, value_input_option="RAW")
+
+    return worksheet
 
 
-def fetch_existing_solicitation_numbers():
-    """Paginate through the whole table and collect every Solicitation Number."""
+def fetch_existing_solicitation_numbers(worksheet):
+    """Read the whole Solicitation Number column to build the dedup set."""
+    values = worksheet.get_values()  # includes header row
+    if not values:
+        return set()
+    header = values[0]
+    try:
+        col_idx = header.index(COL_SOLICITATION)
+    except ValueError:
+        # Header row is missing or unexpected - treat as empty sheet rather
+        # than crash; the next append_row will still land under whatever
+        # header exists.
+        return set()
     seen = set()
-    url = f"{AIRTABLE_API}/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_ID}"
-    params = {"fields[]": FIELD_SOLICITATION, "pageSize": 100}
-    offset = None
-    while True:
-        if offset:
-            params["offset"] = offset
-        resp = requests.get(url, headers=airtable_headers(), params=params, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
-        for rec in data.get("records", []):
-            sol = rec.get("fields", {}).get(FIELD_SOLICITATION)
-            if sol:
-                seen.add(sol)
-        offset = data.get("offset")
-        if not offset:
-            break
+    for row in values[1:]:
+        if col_idx < len(row) and row[col_idx]:
+            seen.add(row[col_idx])
     return seen
 
 
-def create_airtable_records(records):
-    """records: list of dicts already shaped as {fields: {...}}. Batches of 10."""
-    url = f"{AIRTABLE_API}/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_ID}"
-    created = 0
-    for i in range(0, len(records), 10):
-        batch = records[i:i + 10]
-        body = {"records": batch, "typecast": True}
-        resp = requests.post(url, headers=airtable_headers(), json=body, timeout=REQUEST_TIMEOUT)
-        if not resp.ok:
-            # Surface Airtable's actual per-field error instead of a bare 422.
-            raise RuntimeError(f"Airtable create error {resp.status_code}: {resp.text[:1000]}")
-        created += len(resp.json().get("records", []))
-    return created
+def create_sheet_rows(worksheet, rows):
+    """rows: list of dicts keyed by column name. Appended in HEADER order."""
+    values = [[row.get(col, "") for col in HEADER] for row in rows]
+    worksheet.append_rows(values, value_input_option="RAW")
+    return len(values)
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +290,8 @@ def main():
     posted_to = today.strftime("%m/%d/%Y")
     date_found = today.isoformat()
 
-    dedup_set = fetch_existing_solicitation_numbers()
+    worksheet = open_sheet()
+    dedup_set = fetch_existing_solicitation_numbers(worksheet)
 
     status_lines = []
     all_new = []  # list of (ncode, opp)
@@ -289,30 +301,28 @@ def main():
         for opp in new_opps:
             all_new.append((ncode, opp))
 
-    records_to_create = []
+    rows_to_create = []
     for ncode, opp in all_new:
-        records_to_create.append({
-            "fields": {
-                FIELD_TITLE: opp.get("title") or "(no title)",
-                FIELD_STATUS: "New",
-                FIELD_SOLICITATION: opp.get("solicitationNumber"),
-                FIELD_AGENCY: opp.get("fullParentPathName") or "",
-                FIELD_NAICS: ncode,
-                FIELD_DEADLINE: opp.get("responseDeadLine") or None,
-                FIELD_DATE_FOUND: date_found,
-                FIELD_PLACE: format_place(opp.get("placeOfPerformance")),
-                FIELD_SETASIDE: opp.get("typeOfSetAsideDescription") or "",
-                FIELD_URL: opp.get("uiLink") or "",
-            }
+        rows_to_create.append({
+            "Title": opp.get("title") or "(no title)",
+            "Status": "New",
+            "Solicitation Number": opp.get("solicitationNumber") or "",
+            "Agency": opp.get("fullParentPathName") or "",
+            "NAICS Code": ncode,
+            "Response Deadline": opp.get("responseDeadLine") or "",
+            "Date Found": date_found,
+            "Place of Performance": format_place(opp.get("placeOfPerformance")),
+            "Set-Aside": opp.get("typeOfSetAsideDescription") or "",
+            "Link": opp.get("uiLink") or "",
         })
 
     created_count = 0
-    airtable_error = None
-    if records_to_create:
+    sheet_error = None
+    if rows_to_create:
         try:
-            created_count = create_airtable_records(records_to_create)
-        except (requests.RequestException, RuntimeError) as e:
-            airtable_error = str(e)
+            created_count = create_sheet_rows(worksheet, rows_to_create)
+        except Exception as e:
+            sheet_error = str(e)
 
     lines = []
     lines.append(f"KJG Daily SAM.gov Scan - {date_found} (America/New_York)")
@@ -322,10 +332,10 @@ def main():
     lines.extend(status_lines)
     lines.append("")
     lines.append(f"TOTAL NEW OPPORTUNITIES FOUND: {len(all_new)}")
-    if airtable_error:
-        lines.append(f"WARNING: found {len(all_new)} new opportunities but failed to write them to Airtable: {airtable_error}")
+    if sheet_error:
+        lines.append(f"WARNING: found {len(all_new)} new opportunities but failed to write them to the Google Sheet: {sheet_error}")
     else:
-        lines.append(f"TOTAL NEW OPPORTUNITIES ADDED TO AIRTABLE: {created_count}")
+        lines.append(f"TOTAL NEW OPPORTUNITIES ADDED TO SHEET: {created_count}")
     lines.append("")
 
     if all_new:
