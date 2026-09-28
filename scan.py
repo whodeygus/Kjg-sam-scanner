@@ -227,6 +227,12 @@ def send_email(subject, body):
         server.sendmail(GMAIL_ADDRESS, [RECIPIENT_EMAIL], msg.as_string())
 
 
+def _is_real_value(value):
+    """SAM.gov sometimes fills a missing city/state/zip with the literal
+    placeholder "0" instead of leaving it out - treat that as absent."""
+    return bool(value) and value.strip() != "0"
+
+
 def format_place(place):
     """SAM.gov's placeOfPerformance is sometimes a nested dict (city/state/
     zip/country sub-objects), sometimes a plain string, sometimes missing."""
@@ -237,32 +243,32 @@ def format_place(place):
 
     parts = []
     street = place.get("streetAddress")
-    if street:
+    if _is_real_value(street):
         parts.append(street)
 
     city = place.get("city")
     city_name = city.get("name") if isinstance(city, dict) else city
-    if city_name:
+    if _is_real_value(city_name):
         parts.append(city_name)
 
     state = place.get("state")
     state_name = state.get("name") if isinstance(state, dict) else state
     state_code = state.get("code") if isinstance(state, dict) else None
-    if state_code:
+    if _is_real_value(state_code):
         parts.append(state_code)
-    elif state_name:
+    elif _is_real_value(state_name):
         parts.append(state_name)
 
     zip_code = place.get("zip")
-    if zip_code:
+    if _is_real_value(zip_code):
         parts.append(zip_code)
 
     country = place.get("country")
     country_name = country.get("name") if isinstance(country, dict) else country
     country_code = country.get("code") if isinstance(country, dict) else None
-    if country_name and country_name.upper() not in ("UNITED STATES", "USA"):
+    if _is_real_value(country_name) and country_name.upper() not in ("UNITED STATES", "USA"):
         parts.append(country_name)
-    elif country_code and country_code.upper() not in ("USA", "US"):
+    elif _is_real_value(country_code) and country_code.upper() not in ("USA", "US"):
         parts.append(country_code)
 
     return ", ".join(parts) if parts else "not specified"
