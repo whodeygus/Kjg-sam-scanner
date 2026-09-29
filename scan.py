@@ -49,6 +49,7 @@ DEFAULT_HEADER = [
     "Call Script", "Submission", "Sub Contractor",
 ]
 COL_SOLICITATION = "Solicitation Number"
+COL_DATE_FOUND = "Date Found"
 
 
 def _clean(value):
@@ -125,19 +126,23 @@ def get_sheet_header(worksheet):
 
 
 def fetch_existing_solicitation_numbers(worksheet, header):
-    """Read the whole Solicitation Number column to build the dedup set."""
+    """Read the whole Solicitation Number column to build the dedup set.
+    Also returns the current total row count (header included) so the
+    caller can work out where newly-appended rows will land without a
+    second read."""
+    values = worksheet.get_values()  # includes header row
+    total_rows = len(values)
     try:
         col_idx = header.index(COL_SOLICITATION)
     except ValueError:
         # Column missing from the header - treat as empty dedup set rather
         # than crash; new rows still get written under whatever header exists.
-        return set()
-    values = worksheet.get_values()  # includes header row
+        return set(), total_rows
     seen = set()
     for row in values[1:]:
         if col_idx < len(row) and row[col_idx]:
             seen.add(row[col_idx])
-    return seen
+    return seen, total_rows
 
 
 def create_sheet_rows(worksheet, header, rows):
@@ -146,6 +151,35 @@ def create_sheet_rows(worksheet, header, rows):
     values = [[row.get(col, "") for col in header] for row in rows]
     worksheet.append_rows(values, value_input_option="RAW")
     return len(values)
+
+
+def sort_by_date_found(worksheet, header, last_row):
+    """Keep the newest opportunities at the top, so Gus doesn't have to
+    re-sort by hand every day. Sorts by full rows (all columns in the sheet,
+    not just the Date Found column) so manually-entered tracking data -
+    Subcontractor, Notes, Status, etc. - stays attached to the right
+    opportunity rather than getting split from it."""
+    try:
+        col_idx = header.index(COL_DATE_FOUND)
+    except ValueError:
+        return  # column missing - nothing to sort by, leave order as-is
+    if last_row < 3:
+        return  # header + at most one data row - nothing to reorder
+    request = {
+        "requests": [{
+            "sortRange": {
+                "range": {
+                    "sheetId": worksheet.id,
+                    "startRowIndex": 1,  # skip the header row
+                    "endRowIndex": last_row,
+                    "startColumnIndex": 0,
+                    "endColumnIndex": len(header),
+                },
+                "sortSpecs": [{"dimensionIndex": col_idx, "sortOrder": "DESCENDING"}],
+            }
+        }]
+    }
+    worksheet.spreadsheet.batch_update(request)
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +337,7 @@ def main():
 
     worksheet = open_sheet()
     header = get_sheet_header(worksheet)
-    dedup_set = fetch_existing_solicitation_numbers(worksheet, header)
+    dedup_set, existing_row_count = fetch_existing_solicitation_numbers(worksheet, header)
 
     status_lines = []
     all_new = []  # list of (ncode, opp)
@@ -335,6 +369,13 @@ def main():
             created_count = create_sheet_rows(worksheet, header, rows_to_create)
         except Exception as e:
             sheet_error = str(e)
+
+    if created_count and not sheet_error:
+        try:
+            sort_by_date_found(worksheet, header, existing_row_count + created_count)
+        except Exception as e:
+            # Cosmetic only - never let a sort hiccup block today's email.
+            print(f"Sort by Date Found failed (non-fatal): {e}", file=sys.stderr)
 
     lines = []
     lines.append(f"KJG Daily SAM.gov Scan - {date_found} (America/New_York)")
