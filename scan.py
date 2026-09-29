@@ -36,16 +36,17 @@ TIMEZONE = ZoneInfo("America/New_York")
 
 SHEET_TAB_NAME = "Opportunities"
 
-# Column order in the Google Sheet. This mirrors the old Airtable schema so
-# nothing is lost - scan.py only ever fills in the first ten columns
-# (everything through Link); the rest stay blank for manual tracking, same
-# as before.
-HEADER = [
-    "Title", "Status", "Solicitation Number", "Agency", "NAICS Code",
-    "Notice Type", "Response Deadline", "Date Found",
-    "Place of Performance", "Set-Aside", "Subcontractor",
-    "Sub Contact Info", "Link", "Notes", "Call Script", "Submission",
-    "Sub Contractor",
+# Default column layout, used only to create the tab's header row the very
+# first time the sheet is set up. Once the sheet exists, the live header row
+# is read at runtime (see get_sheet_header()) and used to place every field
+# in whichever column it's actually under - so reordering columns by hand in
+# the Sheets UI (Gus does this to suit his own reading order) never breaks
+# the write path, unlike a hardcoded column order would.
+DEFAULT_HEADER = [
+    "Title", "Status", "Link", "Date Found", "Response Deadline",
+    "Place of Performance", "Agency", "NAICS Code", "Set-Aside",
+    "Solicitation Number", "Subcontractor", "Sub Contact Info", "Notes",
+    "Call Script", "Submission", "Sub Contractor",
 ]
 COL_SOLICITATION = "Solicitation Number"
 
@@ -109,26 +110,29 @@ def open_sheet():
         worksheet = spreadsheet.worksheet(SHEET_TAB_NAME)
     except gspread.exceptions.WorksheetNotFound:
         worksheet = spreadsheet.add_worksheet(
-            title=SHEET_TAB_NAME, rows=1000, cols=len(HEADER)
+            title=SHEET_TAB_NAME, rows=1000, cols=len(DEFAULT_HEADER)
         )
-        worksheet.append_row(HEADER, value_input_option="RAW")
+        worksheet.append_row(DEFAULT_HEADER, value_input_option="RAW")
 
     return worksheet
 
 
-def fetch_existing_solicitation_numbers(worksheet):
+def get_sheet_header(worksheet):
+    """The sheet's actual current column order - read fresh every run so a
+    manual column reorder in the Sheets UI is picked up automatically."""
+    header = worksheet.row_values(1)
+    return header if header else DEFAULT_HEADER
+
+
+def fetch_existing_solicitation_numbers(worksheet, header):
     """Read the whole Solicitation Number column to build the dedup set."""
-    values = worksheet.get_values()  # includes header row
-    if not values:
-        return set()
-    header = values[0]
     try:
         col_idx = header.index(COL_SOLICITATION)
     except ValueError:
-        # Header row is missing or unexpected - treat as empty sheet rather
-        # than crash; the next append_row will still land under whatever
-        # header exists.
+        # Column missing from the header - treat as empty dedup set rather
+        # than crash; new rows still get written under whatever header exists.
         return set()
+    values = worksheet.get_values()  # includes header row
     seen = set()
     for row in values[1:]:
         if col_idx < len(row) and row[col_idx]:
@@ -136,9 +140,10 @@ def fetch_existing_solicitation_numbers(worksheet):
     return seen
 
 
-def create_sheet_rows(worksheet, rows):
-    """rows: list of dicts keyed by column name. Appended in HEADER order."""
-    values = [[row.get(col, "") for col in HEADER] for row in rows]
+def create_sheet_rows(worksheet, header, rows):
+    """rows: list of dicts keyed by column name. Appended in the sheet's own
+    current column order, whatever that is, not a fixed/assumed order."""
+    values = [[row.get(col, "") for col in header] for row in rows]
     worksheet.append_rows(values, value_input_option="RAW")
     return len(values)
 
@@ -297,7 +302,8 @@ def main():
     date_found = today.isoformat()
 
     worksheet = open_sheet()
-    dedup_set = fetch_existing_solicitation_numbers(worksheet)
+    header = get_sheet_header(worksheet)
+    dedup_set = fetch_existing_solicitation_numbers(worksheet, header)
 
     status_lines = []
     all_new = []  # list of (ncode, opp)
@@ -326,7 +332,7 @@ def main():
     sheet_error = None
     if rows_to_create:
         try:
-            created_count = create_sheet_rows(worksheet, rows_to_create)
+            created_count = create_sheet_rows(worksheet, header, rows_to_create)
         except Exception as e:
             sheet_error = str(e)
 
