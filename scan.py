@@ -28,8 +28,22 @@ from google.oauth2.service_account import Credentials
 # ---------------------------------------------------------------------------
 
 NAICS_CODES = [
+    # Original codes
     "541611", "541512", "541618", "238910", "236220", "238160",
     "238320", "238210", "561210", "561730", "532289", "562111",
+    # Building / site services (added Oct 2026)
+    "561790",  # Other Services to Buildings & Dwellings (snow plowing, pressure washing)
+    "561720",  # Janitorial Services
+    "562119",  # Other Waste Collection
+    "562991",  # Septic Tank & Related Services (portable toilets)
+    "561710",  # Exterminating & Pest Control
+    "115310",  # Support Activities for Forestry (tree work)
+    # Events, tents & equipment rental (added Oct 2026)
+    "532490",  # Other Commercial & Industrial Equipment Rental (light towers, generators, staging)
+    "532310",  # General Rental Centers
+    "561920",  # Convention & Trade Show Organizers (event planning/support)
+    "531120",  # Lessors of Nonresidential Buildings (event/meeting space)
+    "721110",  # Hotels & Motels (conference/lodging blocks)
 ]
 
 TIMEZONE = ZoneInfo("America/New_York")
