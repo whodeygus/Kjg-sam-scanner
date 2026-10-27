@@ -275,9 +275,25 @@ def send_email(subject, body):
     msg["Subject"] = subject
     msg["From"] = GMAIL_ADDRESS
     msg["To"] = RECIPIENT_EMAIL
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as server:
-        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
-        server.sendmail(GMAIL_ADDRESS, [RECIPIENT_EMAIL], msg.as_string())
+    # Gmail occasionally drops the connection mid-login (seen 10/27/2026:
+    # SMTPServerDisconnected during AUTH), which used to kill the whole
+    # day's email. Retry a few times; a bad password (535) won't fix
+    # itself, so that one is raised straight away.
+    last_err = None
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        try:
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as server:
+                server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+                server.sendmail(GMAIL_ADDRESS, [RECIPIENT_EMAIL], msg.as_string())
+            return
+        except smtplib.SMTPAuthenticationError:
+            raise
+        except (smtplib.SMTPException, OSError) as e:
+            last_err = e
+            print(f"Email attempt {attempt} failed: {e!r}", file=sys.stderr)
+            if attempt < RETRY_ATTEMPTS:
+                time.sleep(RETRY_BACKOFF_SECONDS)
+    raise last_err
 
 
 def _is_real_value(value):
