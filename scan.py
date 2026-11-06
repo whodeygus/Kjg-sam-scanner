@@ -29,7 +29,9 @@ from google.oauth2.service_account import Credentials
 
 NAICS_CODES = [
     # Original codes
-    "541611", "541512", "541618", "238910", "236220", "238160",
+    # (541611, 541512, 541618 removed Nov 2026 - IT / consulting / professional
+    # services results Gus never pursued; re-add here if that changes)
+    "238910", "236220", "238160",
     "238320", "238210", "561210", "561730", "532289", "562111",
     # Building / site services (added Oct 2026)
     "561790",  # Other Services to Buildings & Dwellings (snow plowing, pressure washing)
