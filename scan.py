@@ -44,8 +44,10 @@ NAICS_CODES = [
     "532490",  # Other Commercial & Industrial Equipment Rental (light towers, generators, staging)
     "532310",  # General Rental Centers
     "561920",  # Convention & Trade Show Organizers (event planning/support)
-    "531120",  # Lessors of Nonresidential Buildings (event/meeting space)
     "721110",  # Hotels & Motels (conference/lodging blocks)
+    # Uniform / linen supply (added Nov 2026)
+    "812331",  # Linen Supply
+    "812332",  # Industrial Launderers (uniform supply)
 ]
 
 TIMEZONE = ZoneInfo("America/New_York")
